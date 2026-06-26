@@ -487,37 +487,6 @@ export default function VideoEditor() {
 
   useEffect(() => () => { if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current) }, [])
 
-  const loadProject = useCallback(async () => {
-    try {
-      const [pR, cR] = await Promise.all([
-        api.get(`/api/v1/projects/${projectId}`),
-        api.get(`/api/v1/projects/${projectId}/clips`),
-      ])
-      const proj: ProjectData = pR.data
-      setProject(proj)
-      if (proj.duration_seconds && proj.duration_seconds > 0) setDuration(proj.duration_seconds)
-      setClips(Array.isArray(cR.data) ? cR.data : [])
-    } catch { setError("Could not load project.") }
-    finally { setLoading(false) }
-  }, [projectId])
-
-  const loadCaptions = useCallback(async () => {
-    try { const r = await api.get(`/api/v1/projects/${projectId}/captions`); setCaptions(Array.isArray(r.data) ? r.data : []) }
-    catch { /* non-blocking */ }
-  }, [projectId])
-
-  const loadSavedAssets = useCallback(async () => {
-    try { const r = await api.get(`/api/v1/projects/${projectId}/assets`); setSavedAssets(Array.isArray(r.data) ? r.data : []) }
-    catch { /* non-blocking */ }
-  }, [projectId])
-
-  useEffect(() => {
-    const t = localStorage.getItem("token")
-    if (!t) { router.push("/login"); return }
-    if (!projectId || projectId === "undefined") { router.push("/dashboard"); return }
-    loadProject(); loadCaptions(); loadSavedAssets()
-  }, [loadProject, loadCaptions, loadSavedAssets, router, projectId])
-
   const fetchVideoAsBlob = useCallback(async () => {
     setVideoLoadState("fetching"); setVideoErrorMsg(null)
     try {
@@ -534,37 +503,75 @@ export default function VideoEditor() {
     }
   }, [projectId])
 
-  useEffect(() => {
-    if (!project || videoLoadState !== "idle") return
-    const cloudUrl = project.cloudinary_raw_url || project.video_url
-    if (cloudUrl) { setVideoLoadState("cloudinary"); setVideoBlobUrl(cloudUrl) }
-    else if (project.yt_video_id) {
-      const orig = typeof window !== "undefined" ? encodeURIComponent(window.location.origin) : ""
-      setVideoBlobUrl(`https://www.youtube-nocookie.com/embed/${project.yt_video_id}?rel=0&modestbranding=1&enablejsapi=1&origin=${orig}`)
+  const initializeVideoSource = useCallback((proj: ProjectData) => {
+    const cloudUrl = proj.cloudinary_raw_url || proj.video_url
+    if (cloudUrl) {
+      setVideoBlobUrl(cloudUrl)
       setVideoLoadState("ready")
-    } else { fetchVideoAsBlob() }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project])
+      return
+    }
+    if (proj.yt_video_id) {
+      const orig = typeof window !== "undefined" ? encodeURIComponent(window.location.origin) : ""
+      setVideoBlobUrl(`https://www.youtube-nocookie.com/embed/${proj.yt_video_id}?rel=0&modestbranding=1&enablejsapi=1&origin=${orig}`)
+      setVideoLoadState("ready")
+      return
+    }
+    void fetchVideoAsBlob()
+  }, [fetchVideoAsBlob])
 
-  useEffect(() => { if (videoLoadState === "cloudinary" && videoBlobUrl) setVideoLoadState("ready") }, [videoLoadState, videoBlobUrl])
+  const loadProject = useCallback(async () => {
+    try {
+      const [pR, cR] = await Promise.all([
+        api.get(`/api/v1/projects/${projectId}`),
+        api.get(`/api/v1/projects/${projectId}/clips`),
+      ])
+      const proj: ProjectData = pR.data
+      setProject(proj)
+      if (proj.duration_seconds && proj.duration_seconds > 0) setDuration(proj.duration_seconds)
+      setClips(Array.isArray(cR.data) ? cR.data : [])
+      initializeVideoSource(proj)
+    } catch { setError("Could not load project.") }
+    finally { setLoading(false) }
+  }, [projectId, initializeVideoSource])
+
+  const loadCaptions = useCallback(async () => {
+    try { const r = await api.get(`/api/v1/projects/${projectId}/captions`); setCaptions(Array.isArray(r.data) ? r.data : []) }
+    catch { /* non-blocking */ }
+  }, [projectId])
+
+  const loadSavedAssets = useCallback(async () => {
+    try { const r = await api.get(`/api/v1/projects/${projectId}/assets`); setSavedAssets(Array.isArray(r.data) ? r.data : []) }
+    catch { /* non-blocking */ }
+  }, [projectId])
+
+  useEffect(() => {
+    const t = localStorage.getItem("token")
+    if (!t) { router.push("/login"); return }
+    if (!projectId || projectId === "undefined") { router.push("/dashboard"); return }
+    queueMicrotask(() => {
+      void loadProject()
+      void loadCaptions()
+      void loadSavedAssets()
+    })
+  }, [loadProject, loadCaptions, loadSavedAssets, router, projectId])
 
   const handleRetryVideo = () => {
     setVideoLoadState("idle"); setVideoBlobUrl(null); setVideoErrorMsg(null)
     if (!project) return
-    const cloudUrl = project.cloudinary_raw_url || project.video_url
-    if (cloudUrl) { setVideoLoadState("cloudinary"); setVideoBlobUrl(cloudUrl) }
-    else if (project.yt_video_id) {
-      const orig = typeof window !== "undefined" ? encodeURIComponent(window.location.origin) : ""
-      setVideoBlobUrl(`https://www.youtube-nocookie.com/embed/${project.yt_video_id}?rel=0&modestbranding=1&enablejsapi=1&origin=${orig}`)
-      setVideoLoadState("ready")
-    } else fetchVideoAsBlob()
+    initializeVideoSource(project)
   }
 
   const handleLoadedMetadata = () => { if (videoRef.current?.duration && videoRef.current.duration > 0) setDuration(videoRef.current.duration) }
   const handleTimeUpdate     = () => { if (videoRef.current) setCurrentTime(videoRef.current.currentTime) }
   const handleVideoError     = () => {
-    if (videoLoadState === "cloudinary") { setVideoBlobUrl(null); setVideoLoadState("idle"); fetchVideoAsBlob() }
-    else { setVideoErrorMsg("Video format not supported."); setVideoLoadState("error") }
+    if (project?.cloudinary_raw_url || project?.video_url) {
+      setVideoBlobUrl(null)
+      setVideoLoadState("idle")
+      void fetchVideoAsBlob()
+    } else {
+      setVideoErrorMsg("Video format not supported.")
+      setVideoLoadState("error")
+    }
   }
   const handlePlayPause = () => {
     if (!videoRef.current) return
@@ -738,7 +745,12 @@ export default function VideoEditor() {
     } finally { setSavingAssetId(null) }
   }
 
-  const toggleAssetSel = (id: string) => setSelectedAssetIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggleAssetSel = (id: string) => setSelectedAssetIds(prev => {
+    const n = new Set(prev)
+    if (n.has(id)) n.delete(id)
+    else n.add(id)
+    return n
+  })
   const allSelected = savedAssets.length > 0 && selectedAssetIds.size === savedAssets.length
   const handleSelectAll = () => {
     const all = new Set(savedAssets.map(a => a.id || a._id || "").filter(Boolean))

@@ -159,7 +159,8 @@ function ClipModal({
 
   // Pause video when modal closes
   useEffect(() => {
-    return () => { videoRef.current?.pause() }
+    const video = videoRef.current
+    return () => { video?.pause() }
   }, [])
 
   return (
@@ -290,7 +291,7 @@ export default function ProjectClipsPage() {
     const t = localStorage.getItem("token")
     if (!t) { router.push("/login"); return }
     if (!projectId || projectId === "undefined") { router.push("/dashboard"); return }
-    loadProject()
+    queueMicrotask(() => { void loadProject() })
   }, [loadProject, router, projectId])
 
   // Poll if any clips are still processing

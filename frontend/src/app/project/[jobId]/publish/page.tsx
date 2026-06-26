@@ -44,6 +44,17 @@ function formatTimestamp(iso?: string) {
   return d.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
 }
 
+function readConnectedAccounts(): ConnectedAccount {
+  if (typeof window === "undefined") return { youtube: false, instagram: false }
+  const saved = localStorage.getItem("connectedAccounts")
+  if (!saved) return { youtube: false, instagram: false }
+  try {
+    return JSON.parse(saved) as ConnectedAccount
+  } catch {
+    return { youtube: false, instagram: false }
+  }
+}
+
 const PLATFORMS = [
   {
     key: "youtube" as PublishTarget,
@@ -94,10 +105,7 @@ export default function PublishPage() {
   const [publishTitle, setPublishTitle] = useState("")
   const [publishDescription, setPublishDescription] = useState("")
   const [publishStatuses, setPublishStatuses] = useState<PublishStatus[]>([])
-  const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount>({
-    youtube: false,
-    instagram: false,
-  })
+  const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount>(readConnectedAccounts)
   const [connectingPlatform, setConnectingPlatform] = useState<PublishTarget | null>(null)
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null)
   const [activeTab, setActiveTab] = useState<"publish" | "history">("publish")
@@ -122,25 +130,13 @@ export default function PublishPage() {
     }
   }, [projectId])
 
-  // Load connected account status from localStorage (persists across sessions)
-  useEffect(() => {
-    const saved = localStorage.getItem("connectedAccounts")
-    if (saved) {
-      try {
-        setConnectedAccounts(JSON.parse(saved))
-      } catch {
-        // ignore
-      }
-    }
-  }, [])
-
   useEffect(() => {
     const token = localStorage.getItem("token")
     if (!token) {
       router.push("/login")
       return
     }
-    loadClips()
+    queueMicrotask(() => { void loadClips() })
   }, [loadClips, router])
 
   const handleConnectAccount = async (platform: PublishTarget) => {
